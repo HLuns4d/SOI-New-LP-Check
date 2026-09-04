@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOI &amp; Allocations Comparison Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --canvas: #C3A06A;
+    --canvas-dot: rgba(59,46,34,0.14);
+    --bg: #E9DFC8;
+    --panel: #F6EEDD;
+    --panel-raised: #FBF7EC;
+    --rule: #D8C7A3;
+    --rule-strong: #BFA476;
+    --ink: #3B2E22;
+    --ink-soft: #83705A;
+    --accent: #B5673F;
+    --cta: #C1631F;
+    --cta-hover: #A34F16;
+    --bunter-green: #74833F;
+    --terracotta: #B5673F;
+    --new: #C9971C;
+    --new-bg: #F6E8C4;
+    --changed: #A8752B;
+    --changed-bg: #F0DFB9;
+    --removed: #A14B31;
+    --removed-bg: #EFD9CB;
+    --confirm: #5F6E80;
+    --confirm-bg: #DFE2E3;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Menlo', Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  html{background:var(--canvas);}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:var(--canvas);
+    background-image:radial-gradient(var(--canvas-dot) 1px, transparent 1px);
+    background-size:16px 16px;
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.55;
+    padding:0 14px;
+  }
+  .wrap{
+    max-width:900px;
+    margin:0 auto;
+    background:var(--bg);
+    padding:0 32px 80px;
+    box-shadow:0 0 0 1px var(--rule-strong);
+  }
+  @media (max-width:640px){
+    body{padding:0 6px;}
+    .wrap{padding:0 16px 60px;}
+  }
+  header{padding:48px 0 28px;border-bottom:1px solid var(--rule-strong);text-align:center;position:relative;}
+  .robot-mark{position:absolute;top:-2px;right:0;}
+  @media (max-width:560px){ .robot-mark{width:60px;height:70px;top:-2px;} }
+  header h1{
+    font-family:var(--sans);
+    font-weight:700;
+    font-size:24px;
+    letter-spacing:0.01em;
+    margin:0 0 10px;
+    color:var(--ink);
+  }
+  header p{margin:0 auto;color:var(--ink-soft);font-size:14px;max-width:520px;}
+
+  .upload-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin:28px 0 8px;
+  }
+  @media (max-width:640px){ .upload-grid{grid-template-columns:1fr;} }
+
+  .dropzone{
+    background:var(--panel);
+    border:1px solid var(--rule-strong);
+    border-radius:4px;
+    padding:18px 20px;
+    text-align:left;
+    position:relative;
+    transition:border-color .15s ease;
+  }
+  .dropzone:focus-within, .dropzone:hover{border-color:var(--accent);}
+  .dropzone .label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.04em;
+    color:var(--accent);
+    margin-bottom:10px;
+  }
+  .dropzone input[type=file]{
+    font-size:13px;
+    width:100%;
+    color:var(--ink);
+  }
+  .dropzone input[type=file]::file-selector-button{
+    font-family:var(--sans);
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--ink);
+    background:var(--panel-raised);
+    border:1px solid var(--rule-strong);
+    border-radius:4px;
+    padding:6px 12px;
+    margin-right:10px;
+    cursor:pointer;
+    transition:border-color .15s ease;
+  }
+  .dropzone input[type=file]:hover::file-selector-button{border-color:var(--accent);}
+  .dropzone .filemeta{
+    margin-top:12px;
+    font-size:12.5px;
+    color:var(--ink-soft);
+    min-height:18px;
+    line-height:1.55;
+  }
+  .dropzone .filemeta .fundname{color:var(--ink);font-weight:600;}
+  .dropzone .filemeta .warn{color:var(--removed);}
+
+  .run-row{display:flex;align-items:center;justify-content:center;gap:14px;margin:26px 0 6px;}
+  button#runBtn{
+    background:var(--cta);
+    color:var(--panel-raised);
+    border:1px solid var(--cta);
+    padding:11px 24px;
+    font-size:13.5px;
+    font-family:var(--sans);
+    font-weight:600;
+    letter-spacing:0.02em;
+    border-radius:4px;
+    cursor:pointer;
+    transition:background .15s ease;
+  }
+  button#runBtn:disabled{background:transparent;color:var(--ink-soft);border-color:var(--rule-strong);cursor:not-allowed;}
+  button#runBtn:not(:disabled):hover{background:var(--cta-hover);border-color:var(--cta-hover);}
+  #status{font-size:13px;color:var(--ink-soft);}
+  #status.err{color:var(--removed);}
+
+  #results{display:none;margin-top:36px;opacity:0;transition:opacity .5s ease;}
+  #results.visible{opacity:1;}
+
+  .reset-row{text-align:center;margin-top:48px;}
+  .reset-row button{
+    background:none;
+    border:none;
+    color:var(--accent);
+    font-family:var(--sans);
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    cursor:pointer;
+    padding:6px 4px;
+    text-decoration:underline;
+    text-underline-offset:3px;
+    text-decoration-color:transparent;
+    transition:text-decoration-color .15s ease;
+  }
+  .reset-row button:hover{text-decoration-color:var(--accent);}
+
+  .summary-grid{
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:1px;
+    background:var(--rule);
+    border:1px solid var(--rule);
+    margin-bottom:6px;
+  }
+  @media (max-width:800px){ .summary-grid{grid-template-columns:repeat(2,1fr);} }
+  .stat{background:var(--panel);padding:16px 14px;text-align:center;}
+  .stat .n{font-family:var(--mono);font-size:22px;line-height:1;color:var(--ink);}
+  .stat .l{font-size:11.5px;color:var(--ink-soft);margin-top:8px;}
+
+  .section-title{
+    font-family:var(--sans);
+    font-weight:700;
+    font-size:17px;
+    letter-spacing:0.01em;
+    margin:44px 0 6px;
+    text-align:center;
+    color:var(--ink);
+  }
+  .section-title::after{
+    content:'';
+    display:block;
+    width:36px;
+    height:2px;
+    background:var(--terracotta);
+    margin:10px auto 0;
+  }
+  .section-sub{font-size:12.5px;color:var(--ink-soft);margin:12px 0 16px;text-align:center;}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead th{
+    text-align:left;
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.04em;
+    color:var(--ink-soft);
+    font-weight:400;
+    padding:8px 10px;
+    border-bottom:1px solid var(--rule-strong);
+  }
+  tbody td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top;}
+  tbody tr:hover{background:var(--panel);}
+  td.num, th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;}
+
+  .badge{
+    display:inline-block;
+    font-family:var(--mono);
+    font-size:10.5px;
+    padding:2px 8px;
+    border-radius:3px;
+    white-space:nowrap;
+    letter-spacing:0.02em;
+  }
+  .badge.New{background:var(--new-bg);color:var(--new);}
+  .badge.Changed{background:var(--changed-bg);color:var(--changed);}
+  .badge.Removed{background:var(--removed-bg);color:var(--removed);}
+  .badge.Transfer{background:var(--confirm-bg);color:var(--confirm);}
+
+  .delta.pos{color:var(--new);}
+  .delta.neg{color:var(--removed);}
+  .muted{color:var(--ink-soft);}
+
+  .empty-note{font-size:13px;color:var(--ink-soft);padding:14px 0;text-align:center;}
+  footer{
+    margin-top:64px;
+    font-size:11.5px;
+    font-family:var(--mono);
+    color:var(--ink-soft);
+    border-top:1px solid var(--rule);
+    padding-top:16px;
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  footer .credit{color:var(--ink-soft);}
+  footer .credit b{color:var(--ink);font-weight:600;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <svg class="robot-mark" width="84" height="98" viewBox="-6 -26 72 84" fill="none" stroke="var(--bunter-green)" stroke-width="2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path id="bunterArc" d="M2,-4 A46,24 0 0 1 58,-4" fill="none" stroke="none"/>
+      <text stroke="none" fill="var(--bunter-green)" style="font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:1.5px;">
+        <textPath href="#bunterArc" startOffset="50%" text-anchor="middle">BUNTER</textPath>
+      </text>
+      <rect x="18" y="10" width="24" height="20" rx="4"/>
+      <circle cx="25" cy="19" r="2" fill="var(--bunter-green)" stroke="none"/>
+      <circle cx="35" cy="19" r="2" fill="var(--bunter-green)" stroke="none"/>
+      <line x1="30" y1="10" x2="30" y2="4"/>
+      <circle cx="30" cy="3" r="2" fill="var(--terracotta)" stroke="none"/>
+      <rect x="14" y="32" width="32" height="20" rx="3"/>
+      <line x1="20" y1="38" x2="26" y2="38"/>
+      <line x1="34" y1="38" x2="40" y2="38"/>
+      <circle cx="30" cy="44" r="3"/>
+      <line x1="14" y1="38" x2="6" y2="38"/>
+      <line x1="46" y1="38" x2="54" y2="38"/>
+    </svg>
+    <h1>SOI &amp; Allocations Comparison</h1>
+    <p>Upload a prior-period and current-period reporting workbook &mdash; Aduro or Carta format, detected automatically. The tool locates the SOI and allocations tabs on its own, aggregates each investment and each partner, and flags what changed: new or exited investments, fair value movement, new or removed partners, commitment changes, and possible conversions.</p>
+  </header>
+
+  <div class="upload-grid">
+    <div class="dropzone">
+      <div class="label">PRIOR PERIOD WORKBOOK</div>
+      <input type="file" id="priorFile" accept=".xlsx,.xls">
+      <div class="filemeta" id="priorMeta"></div>
+    </div>
+    <div class="dropzone">
+      <div class="label">CURRENT PERIOD WORKBOOK</div>
+      <input type="file" id="currentFile" accept=".xlsx,.xls">
+      <div class="filemeta" id="currentMeta"></div>
+    </div>
+  </div>
+
+  <div class="run-row">
+    <button id="runBtn" disabled>Run comparison</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="results">
+
+    <div class="summary-grid" id="summaryGrid"></div>
+
+    <div class="section-title">Schedule of Investments</div>
+    <p class="section-sub" id="soiSub"></p>
+    <div id="soiTableWrap"></div>
+
+    <div class="section-title">LP Allocations</div>
+    <p class="section-sub" id="allocSub"></p>
+    <div id="allocTableWrap"></div>
+
+    <div class="reset-row">
+      <button id="resetBtn">Run another comparison</button>
+    </div>
+
+  </div>
+
+  <footer>
+    <span>Runs entirely in your browser &mdash; no file leaves this device, nothing is written back to either workbook.</span>
+    <span class="credit">Built by <b>Hunter Lunsford</b></span>
+  </footer>
+</div>
+
+<script>
+// ---------- helpers ----------
+function num(v){
+  if(v===null||v===undefined||v==='') return 0;
+  const n = typeof v==='number' ? v : parseFloat(String(v).replace(/[,$]/g,''));
+  return isNaN(n) ? 0 : n;
+}
+function txt(v){ return (v===null||v===undefined) ? '' : String(v).trim(); }
+function fmtMoney(n){
+  const sign = n<0 ? '-' : '';
+  return sign + '$' + Math.abs(Math.round(n)).toLocaleString('en-US');
+}
+function fmtDelta(n){
+  if(Math.abs(n) < 0.5) return '<span class="muted">&mdash;</span>';
+  const cls = n>0 ? 'pos' : 'neg';
+  const sign = n>0 ? '+' : '';
+  return '<span class="delta '+cls+'">'+sign+fmtMoney(n)+'</span>';
+}
+function fmtPct(n){
+  if(!isFinite(n)) return '';
+  const sign = n>0 ? '+' : '';
+  return sign + n.toFixed(1) + '%';
+}
+function norm(s){ return txt(s).toLowerCase().replace(/\s+/g,' '); }
+
+function findSheetName(wb, patterns){
+  const names = wb.SheetNames;
+  for(const p of patterns){
+    const exact = names.find(n => n.trim().toLowerCase() === p.toLowerCase());
+    if(exact) return exact;
+  }
+  for(const p of patterns){
+    const partial = names.find(n => n.trim().toLowerCase().includes(p.toLowerCase()));
+    if(partial) return partial;
+  }
+  return null;
+}
+function sheetToRows(ws){
+  return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+}
+function findHeaderRow(rows, targetText, maxScan){
+  const t = targetText.toLowerCase();
+  for(let r=0; r<Math.min(rows.length, maxScan||20); r++){
+    const row = rows[r]; if(!row) continue;
+    for(let c=0;c<row.length;c++){ if(txt(row[c]).toLowerCase()===t) return r; }
+  }
+  return -1;
+}
+function findColByText(rows, rowRange, matchFn){
+  for(const r of rowRange){
+    const row = rows[r]; if(!row) continue;
+    for(let c=0;c<row.length;c++){ if(matchFn(txt(row[c]).toLowerCase())) return c; }
+  }
+  return -1;
+}
+function getFundName(wb){
+  const soiName = findSheetName(wb, ['SOI', 'Schedule of Investments']);
+  const coverName = findSheetName(wb, ['Cover']);
+  for(const sn of [soiName, coverName].filter(Boolean)){
+    const rows = sheetToRows(wb.Sheets[sn]).slice(0,3);
+    for(const row of rows){
+      if(row && row[0] && String(row[0]).trim().length>4) return String(row[0]).trim();
+    }
+  }
+  return null;
+}
+function findHeaderRowMulti(rows, requiredTexts, maxScan){
+  const req = requiredTexts.map(t=>t.toLowerCase());
+  for(let r=0; r<Math.min(rows.length, maxScan||20); r++){
+    const row = rows[r]; if(!row) continue;
+    const rowTexts = row.map(c=>txt(c).toLowerCase());
+    if(req.every(t=>rowTexts.includes(t))) return r;
+  }
+  return -1;
+}
+
+// ---------- format detection ----------
+function detectSOIFormat(ws){
+  const rows = sheetToRows(ws).slice(0,20);
+  if(findHeaderRowMulti(rows, ['investment','asset'])!==-1) return 'carta';
+  if(findHeaderRow(rows, 'company name', 20)!==-1) return 'aduro';
+  return null;
+}
+function detectAllocFormat(ws){
+  const rows = sheetToRows(ws).slice(0,20);
+  if(findHeaderRowMulti(rows, ['investor legal name'])!==-1) return 'carta';
+  if(findHeaderRow(rows, 'entity name', 20)!==-1) return 'aduro';
+  return null;
+}
+const FORMAT_LABEL = {aduro:'Aduro', carta:'Carta', null:'Unrecognized'};
+
+// ---------- SOI parsing (dispatch) ----------
+function parseSOI(ws){
+  const fmt = detectSOIFormat(ws);
+  if(fmt==='carta') return parseSOI_Carta(ws);
+  if(fmt==='aduro') return parseSOI_Aduro(ws);
+  return {error:'Could not recognize the SOI tab format (expected an Aduro-style "Company Name" header or a Carta-style "Investment"/"Asset" header).', companies:[]};
+}
+
+// Carta: the company summary row (col A filled) already holds the rolled-up
+// Cost/Value for that investment; the detail rows below it (col A blank, one
+// per security/round) are components already included in that total, so they
+// are skipped rather than summed to avoid double-counting.
+function parseSOI_Carta(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRowMulti(rows, ['investment','asset']);
+  if(headerRowIdx===-1) return {error:'Could not find the Carta SOI header (Investment / Asset).', companies:[]};
+  const range=[headerRowIdx];
+  const investCol = findColByText(rows, range, t=>t==='investment');
+  const assetCol  = findColByText(rows, range, t=>t==='asset');
+  const costCol   = findColByText(rows, range, t=>t==='cost');
+  const valueCol  = findColByText(rows, range, t=>t==='value');
+  const sectorCol = findColByText(rows, range, t=>t==='sector');
+
+  const companies=[];
+  let current=null;
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const name = txt(row[investCol]);
+    const asset = txt(row[assetCol]);
+    if(name!==''){
+      if(name.toLowerCase()==='total') break;
+      current = {
+        company:name,
+        cost:num(row[costCol]),
+        fv:num(row[valueCol]),
+        shares:null,
+        industry:txt(row[sectorCol]) || null,
+        rounds:{},
+      };
+      companies.push(current);
+      continue;
+    }
+    // detail sub-row: already rolled into the summary row's cost/fv above, but
+    // captured per-asset-class here so conversions can be detected later.
+    if(current && asset!==''){
+      if(!current.rounds[asset]) current.rounds[asset] = {round:asset, cost:0, fv:0};
+      current.rounds[asset].cost += num(row[costCol]);
+      current.rounds[asset].fv   += num(row[valueCol]);
+    }
+  }
+  return {error:null, companies};
+}
+
+function parseSOI_Aduro(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRow(rows, 'company name');
+  if(headerRowIdx===-1) return {error:'Could not find a "Company Name" header on the SOI tab.', companies:[]};
+  const range=[headerRowIdx];
+  const companyCol = findColByText(rows, range, t=>t==='company name');
+  const roundCol   = findColByText(rows, range, t=>t==='round');
+  const sharesCol  = findColByText(rows, range, t=>t.includes('shares'));
+  const costCol    = findColByText(rows, range, t=>t==='cost');
+  const fvCol      = findColByText(rows, range, t=>t==='fair value');
+  const industryCol= findColByText(rows, range, t=>t==='industry');
+
+  const companies={}, order=[];
+  let currentCompany=null, blankStreak=0;
+
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const isBlank = row.every(c => c===null||c===undefined||String(c).trim()==='');
+    if(isBlank){ blankStreak++; if(blankStreak>=60) break; continue; }
+    blankStreak=0;
+
+    const companyCell = txt(row[companyCol]);
+    const roundCell = txt(row[roundCol]);
+
+    if(companyCell!==''){
+      if(companyCell.toUpperCase().includes('TOTAL')) break;
+      currentCompany = companyCell;
+      if(!companies[currentCompany]){
+        companies[currentCompany] = {company:currentCompany, shares:0, cost:0, fv:0, industry:null, rounds:{}};
+        order.push(currentCompany);
+      }
+    }
+    if(currentCompany && roundCell!==''){
+      const c = companies[currentCompany];
+      c.shares += num(row[sharesCol]);
+      c.cost   += num(row[costCol]);
+      c.fv     += num(row[fvCol]);
+      if(!c.industry && row[industryCol]) c.industry = txt(row[industryCol]);
+      if(!c.rounds[roundCell]) c.rounds[roundCell] = {round:roundCell, cost:0, fv:0};
+      c.rounds[roundCell].cost += num(row[costCol]);
+      c.rounds[roundCell].fv   += num(row[fvCol]);
+    }
+  }
+  return {error:null, companies: order.map(k=>companies[k])};
+}
+
+// ---------- Allocations parsing (dispatch) ----------
+function parseAllocations(ws){
+  const fmt = detectAllocFormat(ws);
+  if(fmt==='carta') return parseAllocations_Carta(ws);
+  if(fmt==='aduro') return parseAllocations_Aduro(ws);
+  return {error:'Could not recognize the allocations tab format (expected an Aduro-style "Entity Name" header or a Carta-style "Investor legal name" header).', partners:[]};
+}
+
+// Carta Partner Rollforward: a flat table, one row per partner, no blocks or gaps.
+function parseAllocations_Carta(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRowMulti(rows, ['investor legal name','commitment']);
+  if(headerRowIdx===-1) return {error:'Could not find the Carta Partner Rollforward header.', partners:[]};
+  const range=[headerRowIdx];
+  const nameCol = findColByText(rows, range, t=>t==='investor legal name');
+  const commitCol = findColByText(rows, range, t=>t==='commitment');
+
+  const partners=[];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const name = txt(row[nameCol]);
+    if(name==='') continue;
+    if(name.toLowerCase()==='total') break;
+    partners.push({name, commitment:num(row[commitCol])});
+  }
+  return {error:null, partners};
+}
+
+function parseAllocations_Aduro(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRow(rows, 'entity name');
+  if(headerRowIdx===-1) return {error:'Could not find an "Entity Name" header on the Allocations tab.', partners:[]};
+  const nameCol = findColByText(rows, [headerRowIdx], t=>t==='entity name');
+  const range = [headerRowIdx-1, headerRowIdx, headerRowIdx+1].filter(r=>r>=0);
+  const commitCol = findColByText(rows, range, t=>t.includes('capital commitment'));
+  const contribCol = findColByText(rows, range, t=>t.includes('contributed to date'));
+
+  const partners=[]; let blankStreak=0;
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const colAText = txt(row[0]).toUpperCase();
+    if(colAText.includes('FUND TOTAL')) break;
+
+    const name = txt(row[nameCol]);
+    if(name===''||name==='0'){ blankStreak++; if(blankStreak>=100) break; continue; }
+    blankStreak=0;
+    partners.push({
+      name,
+      commitment: num(row[commitCol]),
+      contributed: contribCol>=0 ? num(row[contribCol]) : null,
+    });
+  }
+  return {error:null, partners};
+}
+
+// ---------- comparison ----------
+function compareByKey(priorList, currentList, keyField, amountFields, tolerance){
+  tolerance = tolerance===undefined ? 0.5 : tolerance;
+  const priorMap = new Map(priorList.map(x=>[norm(x[keyField]), x]));
+  const currMap = new Map(currentList.map(x=>[norm(x[keyField]), x]));
+  const allKeys = new Set([...priorMap.keys(), ...currMap.keys()]);
+  const rows=[];
+  for(const k of allKeys){
+    const p=priorMap.get(k), c=currMap.get(k);
+    if(p && !c) rows.push({status:'Removed', name:p[keyField], prior:p, current:null});
+    else if(!p && c) rows.push({status:'New', name:c[keyField], prior:null, current:c});
+    else{
+      let changed=false;
+      for(const f of amountFields){ if(Math.abs((p[f]||0)-(c[f]||0))>tolerance) changed=true; }
+      rows.push({status: changed?'Changed':'Unchanged', name:c[keyField], prior:p, current:c});
+    }
+  }
+  return rows;
+}
+
+function flagPossibleTransfers(diffRows, amountField){
+  const removed = diffRows.filter(r=>r.status==='Removed');
+  const added = diffRows.filter(r=>r.status==='New');
+  for(const rem of removed){
+    const match = added.find(a => !a._paired && Math.abs((a.current[amountField]||0) - (rem.prior[amountField]||0)) < 0.5);
+    if(match){
+      rem._transferNote = 'Amount matches new entry "'+match.name+'" \u2014 possibly a transfer, not a true exit.';
+      match._transferNote = 'Amount matches removed entry "'+rem.name+'" \u2014 possibly a transfer, not a new commitment.';
+      match._paired = true;
+    }
+  }
+  return diffRows;
+}
+
+// Round/asset-class-level heuristic: within a company present in both periods,
+// if a round disappears and a different round appears with a roughly matching
+// dollar amount, that's very likely a conversion (SAFE/note -> priced round)
+// rather than an ordinary markup. Used for formats with no dedicated
+// conversions report (i.e. Aduro). Tolerance is wider than exact-match since
+// interest/fees can shift the converted amount slightly.
+function flagPossibleConversionsByRounds(soiDiff){
+  for(const r of soiDiff){
+    if(!r.prior || !r.current) continue;
+    const priorRounds = Object.values(r.prior.rounds||{});
+    const currRounds = Object.values(r.current.rounds||{});
+    const priorNames = new Set(priorRounds.map(x=>norm(x.round)));
+    const currNames = new Set(currRounds.map(x=>norm(x.round)));
+    const dropped = priorRounds.filter(x=>!currNames.has(norm(x.round)));
+    const added = currRounds.filter(x=>!priorNames.has(norm(x.round)));
+    if(dropped.length===0 || added.length===0) continue;
+    // Flag any round-name churn, not just cases where the dollars reconcile
+    // cleanly -- real conversions often land in the same period as an
+    // unrelated top-up investment, which throws off a simple total-vs-total
+    // match. Tier the confidence instead of gating on it, so a messy case
+    // still surfaces rather than being silently skipped.
+    const droppedTotal = dropped.reduce((s,x)=>s+x.cost,0);
+    const addedTotal = added.reduce((s,x)=>s+x.cost,0);
+    const reconciles = Math.abs(droppedTotal - addedTotal) <= Math.max(1, droppedTotal*0.1);
+    const arrow = dropped.map(x=>x.round).join(', ') + ' \u2192 ' + added.map(x=>x.round).join(', ');
+    r._conversionNote = reconciles
+      ? arrow + ' (likely conversion, ~'+fmtMoney(addedTotal)+')'
+      : arrow + ' (round composition changed, dropped ~'+fmtMoney(droppedTotal)+' / added ~'+fmtMoney(addedTotal)+' \u2014 may include a conversion plus a separate new investment; verify)';
+    r._conversionReconciles = reconciles;
+  }
+  return soiDiff;
+}
+
+// Carta-only: reads the workbook's own "Conversions" report directly rather
+// than inferring anything, filtered to events after the prior period's
+// as-of date so only conversions that happened between the two snapshots show.
+function extractAsOfDate(soiWs){
+  const rows = sheetToRows(soiWs).slice(0,5);
+  for(const row of rows){
+    const cell = row && row[0];
+    if(typeof cell === 'string'){
+      const m = cell.match(/As of (\d{2}\/\d{2}\/\d{4})/);
+      if(m) return new Date(m[1]);
+    }
+  }
+  return null;
+}
+function parseConversions_Carta(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRowMulti(rows, ['investment','conversion date']);
+  if(headerRowIdx===-1) return [];
+  const range=[headerRowIdx];
+  const investCol = findColByText(rows, range, t=>t==='investment');
+  const assetCol  = findColByText(rows, range, t=>t==='asset class');
+  const dateCol   = findColByText(rows, range, t=>t==='conversion date');
+  const amtCol    = findColByText(rows, range, t=>t==='principal converted');
+  const out=[];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const investment = txt(row[investCol]);
+    if(investment==='') continue;
+    out.push({investment, assetClass:txt(row[assetCol]), date:row[dateCol], amount:num(row[amtCol])});
+  }
+  return out;
+}
+function groupConversionEvents(events){
+  const byKey = new Map();
+  for(const e of events){
+    const d = e.date instanceof Date ? e.date : new Date(e.date);
+    const dateKey = isNaN(d) ? String(e.date) : d.toISOString().slice(0,10);
+    const key = e.investment+'|'+dateKey;
+    if(!byKey.has(key)) byKey.set(key, {investment:e.investment, date:d, from:[], to:[]});
+    const g = byKey.get(key);
+    if(e.amount < -0.5) g.from.push({assetClass:e.assetClass, amount:-e.amount});
+    else if(e.amount > 0.5) g.to.push({assetClass:e.assetClass, amount:e.amount});
+  }
+  return [...byKey.values()].sort((a,b)=>a.date-b.date);
+}
+
+// Reconciles the round-level heuristic (soiDiff rows with _conversionNote)
+// against Carta's own Conversions tab (conversionGroups), by company name.
+// Anything only one method caught gets marked so it surfaces instead of
+// being silently trusted or silently dropped.
+function crossCheckConversions(soiDiff, conversionGroups){
+  const confirmedNames = new Set(conversionGroups.map(g=>norm(g.investment)));
+  const heuristicNames = new Set(soiDiff.filter(r=>r._conversionNote).map(r=>norm(r.name)));
+  for(const r of soiDiff){
+    if(!r._conversionNote) continue;
+    if(confirmedNames.has(norm(r.name))){
+      r._conversionConfirmed = true;
+    } else {
+      r._conversionNote += ' \u2014 NOT found in Conversions tab, verify manually';
+      r._conversionUnconfirmed = true;
+    }
+  }
+  for(const g of conversionGroups){
+    if(!heuristicNames.has(norm(g.investment))) g._noRoundMatch = true;
+  }
+}
+
+// ---------- rendering ----------
+function statusSort(a,b){
+  const order = {New:0, Removed:0, Changed:1, Unchanged:2};
+  return (order[a.status]??3) - (order[b.status]??3);
+}
+
+function renderSOITable(diffRows){
+  let rows = diffRows.slice().filter(r=>r.status!=='Unchanged').sort(statusSort);
+  if(rows.length===0) return '<p class="empty-note">No investments to show.</p>';
+  let html = '<table><thead><tr><th>Status</th><th>Company</th><th class="num">Prior FV</th><th class="num">Current FV</th><th class="num">Change</th><th class="num">%</th><th>Industry</th><th>Note</th></tr></thead><tbody>';
+  for(const r of rows){
+    const priorFV = r.prior ? r.prior.fv : 0;
+    const currFV = r.current ? r.current.fv : 0;
+    const delta = currFV - priorFV;
+    const pct = priorFV ? (delta/priorFV*100) : (currFV>0 ? Infinity : 0);
+    const industry = (r.current && r.current.industry) || (r.prior && r.prior.industry) || '';
+    const badge = r._conversionNote ? (r._conversionUnconfirmed ? 'Removed' : 'Transfer') : r.status;
+    const badgeLabel = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : r.status;
+    html += '<tr>'
+      + '<td><span class="badge '+badge+'">'+badgeLabel+'</span></td>'
+      + '<td>'+r.name+'</td>'
+      + '<td class="num">'+(r.prior ? fmtMoney(priorFV) : '<span class="muted">&mdash;</span>')+'</td>'
+      + '<td class="num">'+(r.current ? fmtMoney(currFV) : '<span class="muted">&mdash;</span>')+'</td>'
+      + '<td class="num">'+fmtDelta(delta)+'</td>'
+      + '<td class="num muted">'+(isFinite(pct) ? fmtPct(pct) : '')+'</td>'
+      + '<td class="muted">'+industry+'</td>'
+      + '<td class="muted" style="font-size:12px;">'+(r._conversionNote || '')+'</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+function renderAllocTable(diffRows){
+  let rows = diffRows.slice().filter(r=>r.status!=='Unchanged').sort(statusSort);
+  if(rows.length===0) return '<p class="empty-note">No partners to show.</p>';
+  let html = '<table><thead><tr><th>Status</th><th>Partner</th><th class="num">Prior Commitment</th><th class="num">Current Commitment</th><th class="num">Change</th><th>Note</th></tr></thead><tbody>';
+  for(const r of rows){
+    const priorC = r.prior ? r.prior.commitment : 0;
+    const currC = r.current ? r.current.commitment : 0;
+    const delta = currC - priorC;
+    const badge = r._transferNote ? 'Transfer' : r.status;
+    html += '<tr>'
+      + '<td><span class="badge '+badge+'">'+(r._transferNote ? 'Possible Transfer' : r.status)+'</span></td>'
+      + '<td>'+r.name+'</td>'
+      + '<td class="num">'+(r.prior ? fmtMoney(priorC) : '<span class="muted">&mdash;</span>')+'</td>'
+      + '<td class="num">'+(r.current ? fmtMoney(currC) : '<span class="muted">&mdash;</span>')+'</td>'
+      + '<td class="num">'+fmtDelta(delta)+'</td>'
+      + '<td class="muted" style="font-size:12px;">'+(r._transferNote || '')+'</td>'
+      + '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+// ---------- file handling ----------
+const state = { priorWb:null, currentWb:null };
+
+function readWorkbook(file){
+  return file.arrayBuffer().then(buf => XLSX.read(buf, {type:'array', cellDates:true}));
+}
+
+function wireUpload(inputId, metaId, key){
+  document.getElementById(inputId).addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    const metaEl = document.getElementById(metaId);
+    if(!file){ metaEl.innerHTML=''; state[key]=null; updateRunButton(); return; }
+    metaEl.textContent = 'Reading\u2026';
+    try{
+      const wb = await readWorkbook(file);
+      const soiName = findSheetName(wb, ['SOI', 'Schedule of Investments']);
+      const allocName = findSheetName(wb, ['LP Allocations YTD','Allocations YTD','Partner Rollforward']);
+      const fundName = getFundName(wb);
+      const soiFmt = soiName ? detectSOIFormat(wb.Sheets[soiName]) : null;
+      const allocFmt = allocName ? detectAllocFormat(wb.Sheets[allocName]) : null;
+      let html = (fundName ? '<span class="fundname">'+fundName+'</span><br>' : '') + file.name;
+      if(!soiName) html += '<br><span class="warn">No SOI tab found</span>';
+      else if(!soiFmt) html += '<br><span class="warn">SOI tab found but format not recognized</span>';
+      if(!allocName) html += '<br><span class="warn">No allocations tab found</span>';
+      else if(!allocFmt) html += '<br><span class="warn">Allocations tab found but format not recognized</span>';
+      if(soiFmt || allocFmt) html += '<br><span class="muted" style="font-size:12px;">Detected format: '+(FORMAT_LABEL[soiFmt||allocFmt])+'</span>';
+      metaEl.innerHTML = html;
+      state[key] = {wb, soiName, allocName, soiFmt, allocFmt, fundName, fileName:file.name};
+    }catch(err){
+      metaEl.innerHTML = '<span class="warn">Could not read this file: '+err.message+'</span>';
+      state[key]=null;
+    }
+    updateRunButton();
+  });
+}
+wireUpload('priorFile','priorMeta','priorWb');
+wireUpload('currentFile','currentMeta','currentWb');
+
+function updateRunButton(){
+  const btn = document.getElementById('runBtn');
+  const status = document.getElementById('status');
+  const ready = state.priorWb && state.currentWb
+    && state.priorWb.soiFmt && state.currentWb.soiFmt
+    && state.priorWb.allocFmt && state.currentWb.allocFmt;
+  btn.disabled = !ready;
+  if(state.priorWb && state.currentWb && state.priorWb.fundName && state.currentWb.fundName
+     && norm(state.priorWb.fundName)!==norm(state.currentWb.fundName)){
+    status.textContent = 'Heads up: the two files appear to be for different entities (' + state.priorWb.fundName + ' vs ' + state.currentWb.fundName + ').';
+    status.className = 'err';
+  } else {
+    status.textContent = '';
+    status.className = '';
+  }
+}
+
+let lastCompare = null;
+
+document.getElementById('runBtn').addEventListener('click', ()=>{
+  const p = state.priorWb, c = state.currentWb;
+  const priorSOI = parseSOI(p.wb.Sheets[p.soiName]);
+  const currSOI = parseSOI(c.wb.Sheets[c.soiName]);
+  const priorAlloc = parseAllocations(p.wb.Sheets[p.allocName]);
+  const currAlloc = parseAllocations(c.wb.Sheets[c.allocName]);
+
+  const statusEl = document.getElementById('status');
+  const errs = [priorSOI.error, currSOI.error, priorAlloc.error, currAlloc.error].filter(Boolean);
+  if(errs.length){
+    statusEl.textContent = errs.join(' ');
+    statusEl.className = 'err';
+  }
+
+  const soiDiff = compareByKey(priorSOI.companies, currSOI.companies, 'company', ['cost','fv','shares']);
+  const allocDiff = flagPossibleTransfers(
+    compareByKey(priorAlloc.partners, currAlloc.partners, 'name', ['commitment']),
+    'commitment'
+  );
+
+  // Conversions: always run the round-level heuristic (it works off the
+  // rounds/asset-class breakdown both parsers now capture). For Carta, also
+  // read the workbook's own Conversions tab and cross-check the two against
+  // each other — anything the heuristic catches that the tab doesn't (or
+  // vice versa) gets flagged rather than silently dropped, since either
+  // method alone could miss something.
+  flagPossibleConversionsByRounds(soiDiff);
+  let conversionGroups = null;
+  if(p.soiFmt==='carta' && c.soiFmt==='carta'){
+    const convSheetName = findSheetName(c.wb, ['Conversions']);
+    if(convSheetName){
+      const asOf = extractAsOfDate(p.wb.Sheets[p.soiName]);
+      const events = parseConversions_Carta(c.wb.Sheets[convSheetName]);
+      const newEvents = asOf ? events.filter(e => new Date(e.date) > asOf) : events;
+      conversionGroups = groupConversionEvents(newEvents);
+      crossCheckConversions(soiDiff, conversionGroups);
+    }
+  }
+
+  lastCompare = {soiDiff, allocDiff, priorSOI, currSOI, priorAlloc, currAlloc, p, c, conversionGroups};
+
+  renderAll();
+  const resultsEl = document.getElementById('results');
+  resultsEl.style.display = 'block';
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{ resultsEl.classList.add('visible'); });
+  });
+  resultsEl.scrollIntoView({behavior:'smooth', block:'start'});
+});
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  const resultsEl = document.getElementById('results');
+  resultsEl.classList.remove('visible');
+  setTimeout(()=>{ resultsEl.style.display = 'none'; }, 500);
+
+  state.priorWb = null;
+  state.currentWb = null;
+  lastCompare = null;
+
+  document.getElementById('priorFile').value = '';
+  document.getElementById('currentFile').value = '';
+  document.getElementById('priorMeta').innerHTML = '';
+  document.getElementById('currentMeta').innerHTML = '';
+
+  updateRunButton();
+  window.scrollTo({top:0, behavior:'smooth'});
+});
+
+
+function renderAll(){
+  if(!lastCompare) return;
+  const {soiDiff, allocDiff, priorSOI, currSOI, priorAlloc, currAlloc, p, c, conversionGroups} = lastCompare;
+
+  const soiNew = soiDiff.filter(r=>r.status==='New').length;
+  const soiChanged = soiDiff.filter(r=>r.status==='Changed').length;
+  const soiRemoved = soiDiff.filter(r=>r.status==='Removed').length;
+  const conversionCount = conversionGroups ? conversionGroups.length : soiDiff.filter(r=>r._conversionNote).length;
+  const conversionUnconfirmed = soiDiff.filter(r=>r._conversionUnconfirmed).length;
+  const conversionUnmatched = conversionGroups ? conversionGroups.filter(g=>g._noRoundMatch).length : 0;
+  const priorFVTotal = priorSOI.companies.reduce((s,x)=>s+x.fv,0);
+  const currFVTotal = currSOI.companies.reduce((s,x)=>s+x.fv,0);
+  const fvChange = currFVTotal - priorFVTotal;
+
+  const allocNew = allocDiff.filter(r=>r.status==='New' && !r._transferNote).length;
+  const allocRemoved = allocDiff.filter(r=>r.status==='Removed' && !r._transferNote).length;
+  const allocTransfers = allocDiff.filter(r=>r._transferNote && r.status==='Removed').length;
+  const allocChanged = allocDiff.filter(r=>r.status==='Changed').length;
+  const priorCommitTotal = priorAlloc.partners.reduce((s,x)=>s+x.commitment,0);
+  const currCommitTotal = currAlloc.partners.reduce((s,x)=>s+x.commitment,0);
+  const commitChange = currCommitTotal - priorCommitTotal;
+
+  document.getElementById('summaryGrid').innerHTML = [
+    stat(fmtMoney(fvChange), 'Portfolio FV change'),
+    stat(soiNew + ' new / ' + soiRemoved + ' exited', 'Investments'),
+    stat(String(conversionCount) + ((conversionUnconfirmed||conversionUnmatched) ? ' \u00b7 ' + (conversionUnconfirmed+conversionUnmatched) + ' to verify' : ''), 'Conversions'),
+    stat(fmtMoney(commitChange), 'Commitment change'),
+    stat(allocNew + ' new' + (allocTransfers ? ' \u00b7 ' + allocTransfers + ' possible transfer' + (allocTransfers>1?'s':'') : ''), 'Partners'),
+  ].join('');
+
+  document.getElementById('soiSub').innerHTML =
+    (p.fundName || p.fileName) + ' <span class="muted">&rarr;</span> ' + (c.fundName || c.fileName)
+    + ' &middot; ' + priorSOI.companies.length + ' \u2192 ' + currSOI.companies.length + ' investments'
+    + ' &middot; FV ' + fmtMoney(priorFVTotal) + ' \u2192 ' + fmtMoney(currFVTotal);
+  document.getElementById('soiTableWrap').innerHTML = renderSOITable(soiDiff);
+
+  document.getElementById('allocSub').innerHTML =
+    priorAlloc.partners.length + ' \u2192 ' + currAlloc.partners.length + ' partners'
+    + ' &middot; total commitment ' + fmtMoney(priorCommitTotal) + ' \u2192 ' + fmtMoney(currCommitTotal)
+    + (allocChanged ? ' &middot; ' + allocChanged + ' commitment change' + (allocChanged>1?'s':'') + ' among existing partners' : '');
+  document.getElementById('allocTableWrap').innerHTML = renderAllocTable(allocDiff);
+}
+
+function stat(n,l){
+  return '<div class="stat"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>';
+}
+</script>
+</body>
+</html>
