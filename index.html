@@ -150,6 +150,22 @@
   #results{display:none;margin-top:36px;opacity:0;transition:opacity .5s ease;}
   #results.visible{opacity:1;}
 
+  .export-row{text-align:center;margin-top:14px;}
+  .export-row button{
+    background:transparent;
+    color:var(--ink);
+    border:1px solid var(--rule-strong);
+    font-family:var(--sans);
+    font-size:12.5px;
+    font-weight:600;
+    letter-spacing:0.01em;
+    padding:8px 16px;
+    border-radius:4px;
+    cursor:pointer;
+    transition:border-color .15s ease;
+  }
+  .export-row button:hover{border-color:var(--accent);}
+
   .reset-row{text-align:center;margin-top:48px;}
   .reset-row button{
     background:none;
@@ -296,6 +312,9 @@
   <div id="results">
 
     <div class="summary-grid" id="summaryGrid"></div>
+    <div class="export-row">
+      <button id="exportBtn">Export to Excel</button>
+    </div>
 
     <div class="section-title">Schedule of Investments</div>
     <p class="section-sub" id="soiSub"></p>
@@ -902,6 +921,112 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   updateRunButton();
   window.scrollTo({top:0, behavior:'smooth'});
 });
+
+function sanitizeFilename(s){
+  return (s||'').replace(/[\\/:*?"<>|]/g, '').trim();
+}
+function setColumnFormat(ws, colIndex, numDataRows, format){
+  for(let r=1; r<=numDataRows; r++){
+    const addr = XLSX.utils.encode_cell({r, c:colIndex});
+    if(ws[addr]) ws[addr].z = format;
+  }
+}
+
+function exportToExcel(){
+  if(!lastCompare) return;
+  const {soiDiff, allocDiff, priorSOI, currSOI, priorAlloc, currAlloc, p, c, conversionGroups} = lastCompare;
+
+  const soiRows = soiDiff.slice().filter(r=>r.status!=='Unchanged').sort(statusSort);
+  const allocRows = allocDiff.slice().filter(r=>r.status!=='Unchanged').sort(statusSort);
+
+  const priorFVTotal = priorSOI.companies.reduce((s,x)=>s+x.fv,0);
+  const currFVTotal = currSOI.companies.reduce((s,x)=>s+x.fv,0);
+  const priorCommitTotal = priorAlloc.partners.reduce((s,x)=>s+x.commitment,0);
+  const currCommitTotal = currAlloc.partners.reduce((s,x)=>s+x.commitment,0);
+  const soiNew = soiDiff.filter(r=>r.status==='New').length;
+  const soiChanged = soiDiff.filter(r=>r.status==='Changed').length;
+  const soiRemoved = soiDiff.filter(r=>r.status==='Removed').length;
+  const conversionCount = conversionGroups ? conversionGroups.length : soiDiff.filter(r=>r._conversionNote).length;
+  const allocNew = allocDiff.filter(r=>r.status==='New' && !r._transferNote).length;
+  const allocRemoved = allocDiff.filter(r=>r.status==='Removed' && !r._transferNote).length;
+  const allocTransfers = allocDiff.filter(r=>r._transferNote && r.status==='Removed').length;
+  const allocChanged = allocDiff.filter(r=>r.status==='Changed').length;
+
+  const summaryAOA = [
+    ['SOI & Allocations Comparison'],
+    [],
+    ['Prior period', p.fundName || p.fileName],
+    ['Current period', c.fundName || c.fileName],
+    ['Generated', new Date().toLocaleString()],
+    [],
+    ['Investments'],
+    ['New', soiNew],
+    ['Changed', soiChanged],
+    ['Removed', soiRemoved],
+    ['Possible conversions', conversionCount],
+    ['Portfolio FV (prior)', priorFVTotal],
+    ['Portfolio FV (current)', currFVTotal],
+    ['Portfolio FV change', currFVTotal - priorFVTotal],
+    [],
+    ['Partners'],
+    ['New', allocNew],
+    ['Removed', allocRemoved],
+    ['Possible transfers', allocTransfers],
+    ['Changed commitment', allocChanged],
+    ['Total commitment (prior)', priorCommitTotal],
+    ['Total commitment (current)', currCommitTotal],
+    ['Commitment change', currCommitTotal - priorCommitTotal],
+  ];
+
+  const soiAOA = [['Status','Company','Prior FV','Current FV','Change','% Change','Industry','Note']];
+  for(const r of soiRows){
+    const priorFV = r.prior ? r.prior.fv : null;
+    const currFV = r.current ? r.current.fv : null;
+    const delta = (currFV||0) - (priorFV||0);
+    const pct = priorFV ? (delta/priorFV) : null;
+    const industry = (r.current && r.current.industry) || (r.prior && r.prior.industry) || '';
+    const label = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : r.status;
+    soiAOA.push([label, r.name, priorFV, currFV, delta, pct, industry, r._conversionNote || '']);
+  }
+
+  const allocAOA = [['Status','Partner','Prior Commitment','Current Commitment','Change','Note']];
+  for(const r of allocRows){
+    const priorC = r.prior ? r.prior.commitment : null;
+    const currC = r.current ? r.current.commitment : null;
+    const delta = (currC||0) - (priorC||0);
+    const label = r._transferNote ? 'Possible Transfer' : r.status;
+    allocAOA.push([label, r.name, priorC, currC, delta, r._transferNote || '']);
+  }
+
+  const wb = XLSX.utils.book_new();
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryAOA);
+  const wsSOI = XLSX.utils.aoa_to_sheet(soiAOA);
+  const wsAlloc = XLSX.utils.aoa_to_sheet(allocAOA);
+
+  setColumnFormat(wsSummary, 1, 22, '$#,##0');
+  setColumnFormat(wsSOI, 2, soiRows.length, '$#,##0');
+  setColumnFormat(wsSOI, 3, soiRows.length, '$#,##0');
+  setColumnFormat(wsSOI, 4, soiRows.length, '$#,##0');
+  setColumnFormat(wsSOI, 5, soiRows.length, '0.0%');
+  setColumnFormat(wsAlloc, 2, allocRows.length, '$#,##0');
+  setColumnFormat(wsAlloc, 3, allocRows.length, '$#,##0');
+  setColumnFormat(wsAlloc, 4, allocRows.length, '$#,##0');
+
+  wsSummary['!cols'] = [{wch:24},{wch:34}];
+  wsSOI['!cols'] = [{wch:20},{wch:30},{wch:14},{wch:14},{wch:14},{wch:10},{wch:16},{wch:50}];
+  wsAlloc['!cols'] = [{wch:20},{wch:30},{wch:16},{wch:16},{wch:14},{wch:50}];
+
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+  XLSX.utils.book_append_sheet(wb, wsSOI, 'Schedule of Investments');
+  XLSX.utils.book_append_sheet(wb, wsAlloc, 'LP Allocations');
+
+  const dateStr = new Date().toISOString().slice(0,10);
+  const namePart = sanitizeFilename(c.fundName) || 'Comparison';
+  XLSX.writeFile(wb, namePart + ' - SOI Comparison - ' + dateStr + '.xlsx');
+}
+
+document.getElementById('exportBtn').addEventListener('click', exportToExcel);
+
 
 
 function renderAll(){
