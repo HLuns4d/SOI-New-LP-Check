@@ -592,6 +592,38 @@ function flagPossibleTransfers(diffRows, amountField){
   return diffRows;
 }
 
+// SOI-only heuristic: a "New" investment whose name contains "(fka <old name>)"
+// or "(formerly <old name>)" is very likely the same portfolio company renamed,
+// not a genuinely new investment -- and the matching "Removed" row is the old
+// name disappearing, not a true exit. Pairs them by reading that text directly
+// rather than guessing from dollar amounts, since a rename can come with a
+// markup/markdown at the same time (as it did for Goalee -> Kommute).
+function extractFkaName(name){
+  const m = name.match(/\(\s*(?:fka|formerly)\.?\s+(.+?)\s*\)/i);
+  return m ? m[1].trim() : null;
+}
+function flagPossibleNameChanges(soiDiff){
+  const removed = soiDiff.filter(r=>r.status==='Removed');
+  const added = soiDiff.filter(r=>r.status==='New');
+  for(const a of added){
+    const fka = extractFkaName(a.name);
+    if(!fka) continue;
+    const fkaNorm = norm(fka);
+    const match = removed.find(r => {
+      if(r._renamePaired) return false;
+      const rn = norm(r.name);
+      return rn === fkaNorm || rn.startsWith(fkaNorm) || fkaNorm.startsWith(rn);
+    });
+    if(match){
+      match._nameChangeNote = 'Renamed to "'+a.name+'" \u2014 possible name change, not a true exit.';
+      a._nameChangeNote = 'Formerly "'+match.name+'" \u2014 possible name change, not a new investment.';
+      match._renamePaired = true;
+      a._renamePaired = true;
+    }
+  }
+  return soiDiff;
+}
+
 // Round/asset-class-level heuristic: within a company present in both periods,
 // if a round disappears and a different round appears with a roughly matching
 // dollar amount, that's very likely a conversion (SAFE/note -> priced round)
@@ -708,8 +740,9 @@ function renderSOITable(diffRows){
     const delta = currFV - priorFV;
     const pct = priorFV ? (delta/priorFV*100) : (currFV>0 ? Infinity : 0);
     const industry = (r.current && r.current.industry) || (r.prior && r.prior.industry) || '';
-    const badge = r._conversionNote ? (r._conversionUnconfirmed ? 'Removed' : 'Transfer') : r.status;
-    const badgeLabel = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : r.status;
+    const badge = r._conversionNote ? (r._conversionUnconfirmed ? 'Removed' : 'Transfer') : (r._nameChangeNote ? 'Transfer' : r.status);
+    const badgeLabel = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : (r._nameChangeNote ? 'Possible Name Change' : r.status);
+    const note = r._conversionNote || r._nameChangeNote || '';
     html += '<tr>'
       + '<td><span class="badge '+badge+'">'+badgeLabel+'</span></td>'
       + '<td>'+r.name+'</td>'
@@ -718,7 +751,7 @@ function renderSOITable(diffRows){
       + '<td class="num">'+fmtDelta(delta)+'</td>'
       + '<td class="num muted">'+(isFinite(pct) ? fmtPct(pct) : '')+'</td>'
       + '<td class="muted">'+industry+'</td>'
-      + '<td class="muted" style="font-size:12px;">'+(r._conversionNote || '')+'</td>'
+      + '<td class="muted" style="font-size:12px;">'+note+'</td>'
       + '</tr>';
   }
   html += '</tbody></table>';
@@ -846,6 +879,7 @@ document.getElementById('runBtn').addEventListener('click', ()=>{
   }
 
   const soiDiff = compareByKey(priorSOI.companies, currSOI.companies, 'company', ['cost','fv','shares']);
+  flagPossibleNameChanges(soiDiff);
   const allocDiff = flagPossibleTransfers(
     compareByKey(priorAlloc.partners, currAlloc.partners, 'name', ['commitment']),
     'commitment'
@@ -920,9 +954,10 @@ function exportToExcel(){
   const currFVTotal = currSOI.companies.reduce((s,x)=>s+x.fv,0);
   const priorCommitTotal = priorAlloc.partners.reduce((s,x)=>s+x.commitment,0);
   const currCommitTotal = currAlloc.partners.reduce((s,x)=>s+x.commitment,0);
-  const soiNew = soiDiff.filter(r=>r.status==='New').length;
+  const soiNew = soiDiff.filter(r=>r.status==='New' && !r._nameChangeNote).length;
   const soiChanged = soiDiff.filter(r=>r.status==='Changed').length;
-  const soiRemoved = soiDiff.filter(r=>r.status==='Removed').length;
+  const soiRemoved = soiDiff.filter(r=>r.status==='Removed' && !r._nameChangeNote).length;
+  const soiRenamed = soiDiff.filter(r=>r._nameChangeNote && r.status==='Removed').length;
   const conversionCount = conversionGroups ? conversionGroups.length : soiDiff.filter(r=>r._conversionNote).length;
   const allocNew = allocDiff.filter(r=>r.status==='New' && !r._transferNote).length;
   const allocRemoved = allocDiff.filter(r=>r.status==='Removed' && !r._transferNote).length;
@@ -940,6 +975,7 @@ function exportToExcel(){
     ['New', soiNew],
     ['Changed', soiChanged],
     ['Removed', soiRemoved],
+    ['Possible name changes', soiRenamed],
     ['Possible conversions', conversionCount],
     ['Portfolio FV (prior)', priorFVTotal],
     ['Portfolio FV (current)', currFVTotal],
@@ -962,8 +998,8 @@ function exportToExcel(){
     const delta = (currFV||0) - (priorFV||0);
     const pct = priorFV ? (delta/priorFV) : null;
     const industry = (r.current && r.current.industry) || (r.prior && r.prior.industry) || '';
-    const label = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : r.status;
-    soiAOA.push([label, r.name, priorFV, currFV, delta, pct, industry, r._conversionNote || '']);
+    const label = r._conversionNote ? (r._conversionUnconfirmed ? 'Unverified Conversion' : 'Possible Conversion') : (r._nameChangeNote ? 'Possible Name Change' : r.status);
+    soiAOA.push([label, r.name, priorFV, currFV, delta, pct, industry, r._conversionNote || r._nameChangeNote || '']);
   }
 
   const allocAOA = [['Status','Partner','Prior Commitment','Current Commitment','Change','Note']];
@@ -980,7 +1016,7 @@ function exportToExcel(){
   const wsSOI = XLSX.utils.aoa_to_sheet(soiAOA);
   const wsAlloc = XLSX.utils.aoa_to_sheet(allocAOA);
 
-  setColumnFormat(wsSummary, 1, 22, '$#,##0');
+  setColumnFormat(wsSummary, 1, 23, '$#,##0');
   setColumnFormat(wsSOI, 2, soiRows.length, '$#,##0');
   setColumnFormat(wsSOI, 3, soiRows.length, '$#,##0');
   setColumnFormat(wsSOI, 4, soiRows.length, '$#,##0');
@@ -1010,9 +1046,10 @@ function renderAll(){
   if(!lastCompare) return;
   const {soiDiff, allocDiff, priorSOI, currSOI, priorAlloc, currAlloc, p, c, conversionGroups} = lastCompare;
 
-  const soiNew = soiDiff.filter(r=>r.status==='New').length;
+  const soiNew = soiDiff.filter(r=>r.status==='New' && !r._nameChangeNote).length;
   const soiChanged = soiDiff.filter(r=>r.status==='Changed').length;
-  const soiRemoved = soiDiff.filter(r=>r.status==='Removed').length;
+  const soiRemoved = soiDiff.filter(r=>r.status==='Removed' && !r._nameChangeNote).length;
+  const soiRenamed = soiDiff.filter(r=>r._nameChangeNote && r.status==='Removed').length;
   const conversionCount = conversionGroups ? conversionGroups.length : soiDiff.filter(r=>r._conversionNote).length;
   const conversionUnconfirmed = soiDiff.filter(r=>r._conversionUnconfirmed).length;
   const conversionUnmatched = conversionGroups ? conversionGroups.filter(g=>g._noRoundMatch).length : 0;
@@ -1030,7 +1067,7 @@ function renderAll(){
 
   document.getElementById('summaryGrid').innerHTML = [
     stat(fmtMoney(fvChange), 'Portfolio FV change'),
-    stat(soiNew + ' new / ' + soiRemoved + ' exited', 'Investments'),
+    stat(soiNew + ' new / ' + soiRemoved + ' exited' + (soiRenamed ? ' \u00b7 ' + soiRenamed + ' possible rename' + (soiRenamed>1?'s':'') : ''), 'Investments'),
     stat(String(conversionCount) + ((conversionUnconfirmed||conversionUnmatched) ? ' \u00b7 ' + (conversionUnconfirmed+conversionUnmatched) + ' to verify' : ''), 'Conversions'),
     stat(fmtMoney(commitChange), 'Commitment change'),
     stat(allocNew + ' new' + (allocTransfers ? ' \u00b7 ' + allocTransfers + ' possible transfer' + (allocTransfers>1?'s':'') : ''), 'Partners'),
