@@ -19,7 +19,6 @@
     --accent: #B5673F;
     --cta: #C1631F;
     --cta-hover: #A34F16;
-    --bunter-green: #74833F;
     --terracotta: #B5673F;
     --new: #C9971C;
     --new-bg: #F6E8C4;
@@ -57,8 +56,6 @@
     .wrap{padding:0 16px 60px;}
   }
   header{padding:48px 0 28px;border-bottom:1px solid var(--rule-strong);text-align:center;position:relative;}
-  .robot-mark{position:absolute;top:-2px;right:0;}
-  @media (max-width:560px){ .robot-mark{width:60px;height:70px;top:-2px;} }
   header h1{
     font-family:var(--sans);
     font-weight:700;
@@ -262,31 +259,12 @@
     gap:16px;
     flex-wrap:wrap;
   }
-  footer .credit{color:var(--ink-soft);}
-  footer .credit b{color:var(--ink);font-weight:600;}
 </style>
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <svg class="robot-mark" width="84" height="98" viewBox="-6 -26 72 84" fill="none" stroke="var(--bunter-green)" stroke-width="2" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path id="bunterArc" d="M2,-4 A46,24 0 0 1 58,-4" fill="none" stroke="none"/>
-      <text stroke="none" fill="var(--bunter-green)" style="font-family:var(--sans);font-size:9px;font-weight:700;letter-spacing:1.5px;">
-        <textPath href="#bunterArc" startOffset="50%" text-anchor="middle">BUNTER</textPath>
-      </text>
-      <rect x="18" y="10" width="24" height="20" rx="4"/>
-      <circle cx="25" cy="19" r="2" fill="var(--bunter-green)" stroke="none"/>
-      <circle cx="35" cy="19" r="2" fill="var(--bunter-green)" stroke="none"/>
-      <line x1="30" y1="10" x2="30" y2="4"/>
-      <circle cx="30" cy="3" r="2" fill="var(--terracotta)" stroke="none"/>
-      <rect x="14" y="32" width="32" height="20" rx="3"/>
-      <line x1="20" y1="38" x2="26" y2="38"/>
-      <line x1="34" y1="38" x2="40" y2="38"/>
-      <circle cx="30" cy="44" r="3"/>
-      <line x1="14" y1="38" x2="6" y2="38"/>
-      <line x1="46" y1="38" x2="54" y2="38"/>
-    </svg>
     <h1>SOI &amp; Allocations Comparison</h1>
     <p>Upload a prior-period and current-period reporting workbook &mdash; Aduro or Carta format, detected automatically. The tool locates the SOI and allocations tabs on its own, aggregates each investment and each partner, and flags what changed: new or exited investments, fair value movement, new or removed partners, commitment changes, and possible conversions.</p>
   </header>
@@ -332,7 +310,6 @@
 
   <footer>
     <span>Runs entirely in your browser &mdash; no file leaves this device, nothing is written back to either workbook.</span>
-    <span class="credit">Built by <b>Hunter Lunsford</b></span>
   </footer>
 </div>
 
