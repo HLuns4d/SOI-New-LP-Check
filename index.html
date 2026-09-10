@@ -463,7 +463,7 @@ function parseSOI_Aduro(ws){
   if(headerRowIdx===-1) return {error:'Could not find a "Company Name" header on the SOI tab.', companies:[]};
   const range=[headerRowIdx];
   const companyCol = findColByText(rows, range, t=>t==='company name');
-  const roundCol   = findColByText(rows, range, t=>t==='round');
+  const roundCol   = findColByText(rows, range, t=>t==='round' || t==='security');
   const sharesCol  = findColByText(rows, range, t=>t.includes('shares'));
   const costCol    = findColByText(rows, range, t=>t==='cost');
   const fvCol      = findColByText(rows, range, t=>t==='fair value');
