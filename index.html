@@ -350,6 +350,31 @@ function findSheetName(wb, patterns){
   }
   return null;
 }
+// Some workbooks have more than one sheet that could plausibly be "the SOI"
+// (e.g. an "Audited SOI" that's split across several print-paginated sheets,
+// alongside a clean single-row-per-company "Portfolio Summary ACTIVE"). Name
+// matching alone can lock onto the wrong one. This tries every sheet whose
+// name matches any pattern and returns the first one whose header actually
+// validates against a known format, falling back to the plain first name
+// match (old behavior) so the "found but not recognized" message still shows
+// a sensible sheet name when nothing validates.
+function findValidSOISheet(wb, patterns){
+  const names = wb.SheetNames;
+  const candidates = [];
+  for(const p of patterns){
+    const exact = names.find(n => n.trim().toLowerCase() === p.toLowerCase());
+    if(exact && !candidates.includes(exact)) candidates.push(exact);
+  }
+  for(const p of patterns){
+    for(const n of names){
+      if(n.trim().toLowerCase().includes(p.toLowerCase()) && !candidates.includes(n)) candidates.push(n);
+    }
+  }
+  for(const name of candidates){
+    if(detectSOIFormat(wb.Sheets[name])) return name;
+  }
+  return candidates[0] || null;
+}
 function sheetToRows(ws){
   return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
 }
@@ -394,6 +419,7 @@ function detectSOIFormat(ws){
   const rows = sheetToRows(ws).slice(0,20);
   if(findHeaderRowMulti(rows, ['investment','asset'])!==-1) return 'carta';
   if(findHeaderRow(rows, 'company name', 20)!==-1) return 'aduro';
+  if(findHeaderRowMulti(rows, ['cost basis','holding value'])!==-1) return 'portfolio-summary';
   return null;
 }
 function detectAllocFormat(ws){
@@ -402,14 +428,46 @@ function detectAllocFormat(ws){
   if(findHeaderRow(rows, 'entity name', 20)!==-1) return 'aduro';
   return null;
 }
-const FORMAT_LABEL = {aduro:'Aduro', carta:'Carta', null:'Unrecognized'};
+const FORMAT_LABEL = {aduro:'Aduro', carta:'Carta', 'portfolio-summary':'Portfolio Summary', null:'Unrecognized'};
 
 // ---------- SOI parsing (dispatch) ----------
 function parseSOI(ws){
   const fmt = detectSOIFormat(ws);
   if(fmt==='carta') return parseSOI_Carta(ws);
   if(fmt==='aduro') return parseSOI_Aduro(ws);
-  return {error:'Could not recognize the SOI tab format (expected an Aduro-style "Company Name" header or a Carta-style "Investment"/"Asset" header).', companies:[]};
+  if(fmt==='portfolio-summary') return parseSOI_PortfolioSummary(ws);
+  return {error:'Could not recognize the SOI tab format (expected an Aduro-style "Company Name" header, a Carta-style "Investment"/"Asset" header, or a Portfolio Summary "Cost Basis"/"Holding Value" header).', companies:[]};
+}
+
+// Portfolio Summary style: one flat row per company (no security-level detail
+// rows to worry about), company name in the leftmost column, Cost Basis and
+// Holding Value doing the job Cost/Fair Value do elsewhere. No round-level
+// breakdown is available in this format, so the conversion heuristic simply
+// won't fire for it -- that's honest given the data, not a bug.
+function parseSOI_PortfolioSummary(ws){
+  const rows = sheetToRows(ws);
+  const headerRowIdx = findHeaderRowMulti(rows, ['cost basis','holding value']);
+  if(headerRowIdx===-1) return {error:'Could not find the Portfolio Summary header (Cost Basis / Holding Value).', companies:[]};
+  const range=[headerRowIdx];
+  const costCol = findColByText(rows, range, t=>t==='cost basis');
+  const fvCol = findColByText(rows, range, t=>t==='holding value');
+
+  const companies=[];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r] || [];
+    const name = txt(row[0]);
+    if(name==='') continue;
+    if(name.toLowerCase().includes('total')) break;
+    companies.push({
+      company:name,
+      cost:num(row[costCol]),
+      fv:num(row[fvCol]),
+      shares:null,
+      industry:null,
+      rounds:{},
+    });
+  }
+  return {error:null, companies};
 }
 
 // Carta: the company summary row (col A filled) already holds the rolled-up
@@ -798,7 +856,7 @@ function wireUpload(inputId, metaId, key){
     metaEl.textContent = 'Reading\u2026';
     try{
       const wb = await readWorkbook(file);
-      const soiName = findSheetName(wb, ['SOI', 'Schedule of Investments']);
+      const soiName = findValidSOISheet(wb, ['SOI', 'Schedule of Investments', 'Portfolio Summary ACTIVE', 'Portfolio Summary']);
       const allocName = findSheetName(wb, ['LP Allocations YTD','Allocations YTD','Partner Rollforward']);
       const fundName = getFundName(wb);
       const soiFmt = soiName ? detectSOIFormat(wb.Sheets[soiName]) : null;
